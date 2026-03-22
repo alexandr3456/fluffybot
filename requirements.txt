@@ -4,5 +4,5 @@ aiogram>=3.0.0
 pyTelegramBotAPI
 requests
 ccxt
-pandas_ta
+pandas_ta_classic
 python-dotenv
