@@ -252,7 +252,13 @@ async def main():
     load_data()
     logger.info("🚀 Bot started")
 
-    await bot.delete_webhook(drop_pending_updates=True)
+   try:
+    await asyncio.wait_for(
+        bot.delete_webhook(drop_pending_updates=True), 
+        timeout=3
+    )
+except:
+    pass
 
     scheduler = AsyncIOScheduler()
     scheduler.add_job(scan_market, "interval", minutes=CHECK_INTERVAL)
