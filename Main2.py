@@ -47,18 +47,15 @@ def load_data():
             data = json.load(f)
             subscribers = set(data.get("subscribers", []))
 
-
 def save_data():
     with open(DATA_FILE, "w") as f:
         json.dump({"subscribers": list(subscribers)}, f)
-
 
 # ===================== EXCHANGE =====================
 exchange = ccxt.bybit({
     "enableRateLimit": True,
     "options": {"defaultType": "future"}
 })
-
 
 # ===================== COMMANDS =====================
 @dp.message()
@@ -85,11 +82,9 @@ async def stop(message: Message):
     save_data()
     await message.answer("❌ Подписка отключена")
 
-
 @dp.message(Command("status"))
 async def status(message: Message):
     await message.answer(f"👥 Подписчиков: {len(subscribers)}\n⚙️ Интервал: {CHECK_INTERVAL} мин")
-
 
 # ===================== CORE =====================
 
@@ -97,7 +92,6 @@ def calculate_indicators(df):
     df["rsi"] = ta.rsi(df["close"], length=14)
     df["ema50"] = ta.ema(df["close"], length=50)
     return df
-
 
 def get_signal(df, funding_rate, open_interest):
     price = df["close"].iloc[-1]
@@ -151,7 +145,6 @@ def get_signal(df, funding_rate, open_interest):
         "oi": open_interest
     }
 
-
 async def fetch_funding(symbol):
     try:
         data = exchange.fetch_funding_rate(symbol)
@@ -159,14 +152,12 @@ async def fetch_funding(symbol):
     except:
         return 0
 
-
 async def fetch_oi(symbol):
     try:
         data = exchange.fetch_open_interest(symbol, params={"category": "linear"})
         return float(data["openInterest"])
     except:
         return 0
-
 
 async def process_symbol(symbol):
     try:
@@ -198,7 +189,6 @@ async def process_symbol(symbol):
 
     return None
 
-
 async def scan_market():
     logger.info("🔍 Scan start")
 
@@ -206,68 +196,4 @@ async def scan_market():
         markets = exchange.load_markets()
         symbols = [
             s for s, i in markets.items()
-            if i.get("linear") and i.get("quote") == "USDT" and i.get("active", True)
-        ]
-
-        tasks = [process_symbol(s) for s in symbols[:100]]  # ограничение для скорости
-        results = await asyncio.gather(*tasks)
-
-        signals = [r for r in results if r]
-
-        for symbol, score, d in signals:
-            token = symbol.replace("USDT", "")
-
-            text = f"""
-🚨 <b>SHORT SIGNAL</b> — ${token}
-
-🔥 Score: <b>{score}/10</b>
-
-📈 Рост: {d['price_change']:.2f}%
-📉 RSI: {d['rsi']:.1f}
-📊 Volume: x{d['volume_ratio']:.1f}
-📐 EMA dist: {d['ema_distance']:.1f}%
-
-💰 Funding: {d['funding']:.4f}
-📊 OI: {d['oi']:.0f}
-
-🕒 {datetime.now().strftime('%H:%M:%S')}
-
-🔗 https://www.bybit.com/trade/perpetual/{symbol}
-"""
-
-            for user in subscribers:
-                try:
-                    await bot.send_message(user, text, parse_mode="HTML", disable_web_page_preview=True)
-                except:
-                    pass
-
-        logger.info(f"✅ Signals: {len(signals)}")
-
-    except Exception as e:
-        logger.error(f"Scan error: {e}")
-
-
-# ===================== MAIN =====================
-async def main():
-    load_data()
-    logger.info("🚀 Bot started")
-
-   try:
-    await asyncio.wait_for(
-        bot.delete_webhook(drop_pending_updates=True), 
-        timeout=3
-    )
-except:
-    pass
-
-    scheduler = AsyncIOScheduler()
-    scheduler.add_job(scan_market, "interval", minutes=CHECK_INTERVAL)
-    scheduler.start()
-
-   # asyncio.create_task(scan_market())
-
-    await dp.start_polling(bot)
-
-
-if __name__ == "__main__":
-    asyncio.run(main())
+            if i.get("linear") and i.get("quote") == "USDT" and i.get("active",
