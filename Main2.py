@@ -43,15 +43,6 @@ last_signals = {}
 def load_data():
     global subscribers
     if os.path.exists(DATA_FILE):
-<<<<<<< HEAD
-        with open(DATA_FILE, "r") as f:
-            data = json.load(f)
-            subscribers = set(data.get("subscribers", []))
-
-def save_data():
-    with open(DATA_FILE, "w") as f:
-        json.dump({"subscribers": list(subscribers)}, f)
-=======
         try:
             with open(DATA_FILE, "r") as f:
                 data = json.load(f)
@@ -66,7 +57,6 @@ def save_data():
             json.dump({"subscribers": list(subscribers)}, f)
     except Exception as e:
         logger.error(f"Failed to save data file: {e}")
->>>>>>> 41b966b (2)
 
 # ===================== EXCHANGE =====================
 exchange = ccxt.bybit({
@@ -151,8 +141,6 @@ def get_signal(df, funding_rate, open_interest):
         "oi": open_interest
     }
 
-<<<<<<< HEAD
-=======
 async def fetch_ohlcv_async(symbol):
     try:
         return await asyncio.to_thread(
@@ -166,7 +154,6 @@ async def fetch_ohlcv_async(symbol):
         logger.error(f"fetch_ohlcv_async error for {symbol}: {e}")
         return []
 
->>>>>>> 41b966b (2)
 async def fetch_funding(symbol):
     try:
         data = await asyncio.to_thread(exchange.fetch_funding_rate, symbol)
@@ -219,9 +206,6 @@ async def scan_market():
         markets = await asyncio.to_thread(exchange.load_markets)
         symbols = [
             s for s, i in markets.items()
-<<<<<<< HEAD
-            if i.get("linear") and i.get("quote") == "USDT" and i.get("active",
-=======
             if i.get("linear") and i.get("quote") == "USDT" and i.get("active", True)
         ]
 
@@ -285,4 +269,3 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
->>>>>>> 41b966b (2)
