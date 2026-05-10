@@ -8,9 +8,9 @@ import pandas as pd
 import pandas_ta_classic as ta
 import ccxt
 
-from aiogram import Bot, Dispatcher
+from aiogram import Bot, Dispatcher, F
 from aiogram.filters import Command
-from aiogram.types import Message
+from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from dotenv import load_dotenv
 
@@ -25,6 +25,13 @@ CHECK_INTERVAL = 5  # minutes
 COOLDOWN_MINUTES = 30
 DATA_FILE = "data.json"
 
+# Тарифы подписки
+SUBSCRIPTION_PLANS = {
+    "2_weeks": {"name": "2 недели", "price": "5$", "days": 14},
+    "1_month": {"name": "1 месяц", "price": "10$", "days": 30},
+    "3_months": {"name": "3 месяца", "price": "25$", "days": 90}
+}
+
 # ===================== LOGGING =====================
 logging.basicConfig(
     level=logging.INFO,
@@ -36,25 +43,44 @@ logger = logging.getLogger(__name__)
 bot = Bot(token=TELEGRAM_TOKEN)
 dp = Dispatcher()
 
-subscribers = set()
+subscribers = {}  # {chat_id: {"expiry_date": datetime, "status": "active"}}
 last_signals = {}
 
 # ===================== STORAGE =====================
+
 def load_data():
     global subscribers
     if os.path.exists(DATA_FILE):
         try:
             with open(DATA_FILE, "r") as f:
                 data = json.load(f)
-                subscribers = set(data.get("subscribers", []))
-                logger.info(f"Loaded {len(subscribers)} subscribers")
+                # Преобразуем строки дат обратно в datetime
+                subscribers = {
+                    int(k): {
+                "expiry_date": datetime.fromisoformat(v["expiry_date"]),
+                "status": v["status"]
+            }
+            for k, v in data.get("subscribers", {}).items()
+        }
+            # СТРОКА ЛОГИРОВАНИЯ ТЕПЕРЬ НА СВОЁМ МЕСТЕ — внутри try, после загрузки данных
+            logger.info(f"Loaded {len(subscribers)} subscribers")
         except Exception as e:
             logger.error(f"Failed to load data file: {e}")
-
+    else:
+        logger.info("No data file found, starting fresh")
 def save_data():
     try:
+        # Преобразуем datetime в строки для JSON
+        serializable_subcribers = {
+            k: {
+                "expiry_date": v["expiry_date"].isoformat(),
+                "status": v["status"]
+            }
+            for k, v in subscribers.items()
+        }
+
         with open(DATA_FILE, "w") as f:
-            json.dump({"subscribers": list(subscribers)}, f)
+            json.dump({"subcribers": serializable_subcribers}, f)
     except Exception as e:
         logger.error(f"Failed to save data file: {e}")
 
@@ -65,31 +91,99 @@ exchange = ccxt.bybit({
 })
 
 # ===================== COMMANDS =====================
-@dp.message()
-async def handle_all(message: Message):
-    text = message.text
-    if text == "/start":
-        subscribers.add(message.chat.id)
-        save_data()
-        await message.answer("✅ Подписка включена")
+@dp.message(Command("start"))
+async def start(message: Message):
+    chat_id = message.chat.id
+    current_date = datetime.now()
 
-    elif text == "/stop":
-        subscribers.discard(message.chat.id)
-        save_data()
-        await message.answer("❌ Подписка отключена")
+    # Проверяем статус подписки
+    if chat_id in subscribers:
+        sub_data = subscribers[chat_id]
+        if sub_data["status"] == "active" and sub_data["expiry_date"] > current_date:
+            await message.answer("✅ Вы уже подписаны! Ожидайте сигналов.")
+            return
 
-  
+    welcome_text = (
+        "Привет я Флафи, твой милый помощник в этом мрачном мире, "
+        "я буду давать тебе сигналы на шорт. "
+        "Для включения подписки оплатите тариф — /pay"
+    )
+    await message.answer(welcome_text)
 
-    else:
-        await message.answer("Я работаю 👍")
+@dp.message(Command("pay"))
+async def pay(message: Message):
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(
+                text=f"{plan['name']} — {plan['price']}",
+                callback_data=plan_key
+            )
+            for plan_key, plan in SUBSCRIPTION_PLANS.items()
+        ],
+        [InlineKeyboardButton(text="🔙 Назад", callback_data="back_to_start")]
+    ])
+
+    tariff_text = "💳 Выберите тариф подписки:\n\n"
+    for plan_key, plan in SUBSCRIPTION_PLANS.items():
+        tariff_text += f"• <b>{plan['name']}</b> — {plan['price']}\n"
+
+    tariff_text += "\nПосле оплаты вы получите доступ к сигналам на шорт."
+
+    await message.answer(tariff_text, parse_mode="HTML", reply_markup=keyboard)
+
+@dp.callback_query(F.data.startswith("2_weeks") | F.data.startswith("1_month") | F.data.startswith("3_months"))
+async def handle_tariff_selection(callback):
+    chat_id = callback.message.chat.id
+    plan_key = callback.data
+    plan = SUBSCRIPTION_PLANS[plan_key]
+
+    # Создаём запись о подписке
+    expiry_date = datetime.now() + timedelta(days=plan["days"])
+    subscribers[chat_id] = {
+        "expiry_date": expiry_date,
+        "status": "active"
+    }
+    save_data()
+
+    await callback.message.answer(
+        "Вижу твой платеж, знал что ты свой))) "
+        "жди сигнала, не забудь включить уведомления, для отмены подписки /stop"
+    )
+    await callback.answer()
+
 
 @dp.message(Command("stop"))
 async def stop(message: Message):
-    subscribers.discard(message.chat.id)
-    save_data()
-    await message.answer("❌ Подписка отключена")
+    chat_id = message.chat.id
+
+    if chat_id in subscribers:
+        del subscribers[chat_id]
+        save_data()
+        await message.answer("❌ Подписка отключена. Если передумаете — /start")
+    else:
+        await message.answer("У вас нет активной подписки.")
 
 
+# Обработчик для всех остальных сообщений
+@dp.message()
+async def handle_all(message: Message):
+    chat_id = message.chat.id
+    current_date = datetime.now()
+
+    # Проверяем подписку перед ответом
+    if chat_id not in subscribers or subscribers[chat_id]["expiry_date"] < current_date:
+        await message.answer("Для использования бота нужна активная подписка — /pay")
+        return
+
+    text = message.text
+    if text == "/start":
+        await start(message)
+    elif text == "/stop":
+        await stop(message)
+    elif text == "/pay":
+        await pay(message)
+    else:
+        await message.answer("Я работаю 👍")
 
 # ===================== CORE =====================
 
@@ -110,7 +204,6 @@ def get_signal(df, funding_rate, open_interest):
     volume_spike = cur_vol > avg_vol * 1.8 if avg_vol else False
 
     far_from_ema = price > ema * 1.04 if ema else False
-
     last_red = df["close"].iloc[-1] < df["open"].iloc[-1]
 
     score = 0
@@ -200,6 +293,17 @@ async def process_symbol(symbol):
 async def scan_market():
     logger.info("🔍 Scan start")
     try:
+        current_date = datetime.now()
+        # Фильтруем активных подписчиков
+        active_subcribers = [
+            user_id for user_id, data in subscribers.items()
+            if data["status"] == "active" and data["expiry_date"] > current_date
+        ]
+
+        if not active_subcribers:
+            logger.info("No active subscribers, skipping scan")
+            return
+
         markets = await asyncio.to_thread(exchange.load_markets)
         symbols = [
             s for s, i in markets.items()
@@ -220,6 +324,7 @@ async def scan_market():
 
 🔥 Score: <b>{score}/10</b>
 
+
 📈 Рост: {d['price_change']:.2f}%
 📉 RSI: {d['rsi']:.1f}
 📊 Volume: x{d['volume_ratio']:.1f}
@@ -233,16 +338,17 @@ async def scan_market():
 🔗 https://www.bybit.com/trade/perpetual/{symbol}
 """
 
-            for user in subscribers:
+            for user in active_subcribers:
                 try:
                     await bot.send_message(user, text, parse_mode="HTML", disable_web_page_preview=True)
                 except Exception as e:
                     logger.warning(f"Failed to send message to {user}: {e}")
 
-        logger.info(f"✅ Signals sent: {len(signals)}")
+        logger.info(f"✅ Signals sent: {len(signals)} to {len(active_subcribers)} users")
 
     except Exception as e:
         logger.error(f"Scan error: {e}")
+
 
 # ===================== MAIN =====================
 async def main():
