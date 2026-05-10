@@ -89,9 +89,7 @@ async def stop(message: Message):
     save_data()
     await message.answer("❌ Подписка отключена")
 
-@dp.message(Command("status"))
-async def status(message: Message):
-    await message.answer(f"👥 Подписчиков: {len(subscribers)}\n⚙️ Интервал: {CHECK_INTERVAL} мин")
+
 
 # ===================== CORE =====================
 
