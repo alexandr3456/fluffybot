@@ -78,8 +78,7 @@ async def handle_all(message: Message):
         save_data()
         await message.answer("❌ Подписка отключена")
 
-    elif text == "/status":
-        await message.answer(f"👥 Подписчиков: {len(subscribers)}\n⚙️ Интервал: {CHECK_INTERVAL} мин")
+  
 
     else:
         await message.answer("Я работаю 👍")
