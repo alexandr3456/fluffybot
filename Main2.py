@@ -7,6 +7,7 @@ import uvicorn
 import pandas as pd
 import pandas_ta_classic as ta
 import ccxt
+import cryptobot
 
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import Command
