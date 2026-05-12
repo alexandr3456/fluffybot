@@ -6,3 +6,4 @@ requests
 ccxt
 pandas_ta_classic
 python-dotenv
+uvicorn
