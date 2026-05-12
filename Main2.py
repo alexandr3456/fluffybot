@@ -3,7 +3,7 @@ import os
 import json
 import logging
 from datetime import datetime, timedelta
-
+import uvicorn
 import pandas as pd
 import pandas_ta_classic as ta
 import ccxt
@@ -13,17 +13,29 @@ from aiogram.filters import Command
 from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from dotenv import load_dotenv
-
+from cryptobot import WebhookListener
+from fastapi import FastAPI, Request
 # ===================== CONFIG =====================
 load_dotenv()
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+CRYPTOBOT_API_TOKEN = os.getenv("CRYPTOBOT_API_TOKEN")
 
 if not TELEGRAM_TOKEN:
     raise ValueError("❌ TELEGRAM_TOKEN missing")
+if not CRYPTOBOT_API_TOKEN:
+    logger.warning("⚠️ CRYPTOBOT_API_TOKEN missing! Платежи не будут работать.")
 
 CHECK_INTERVAL = 5  # minutes
 COOLDOWN_MINUTES = 30
 DATA_FILE = "data.json"
+
+try:
+    from cryptobot import CryptoBotClient, Asset
+    cryptobot_client = CryptoBotClient(api_token=CRYPTOBOT_API_TOKEN)
+    logger.info("✅ CryptoBot client initialized")
+except ImportError:
+    logger.error("❌ Установи библиотеку: pip install cryptobot-python")
+    cryptobot_client = None
 
 # Тарифы подписки
 SUBSCRIPTION_PLANS = {
@@ -131,26 +143,46 @@ async def pay(message: Message):
 
     await message.answer(tariff_text, parse_mode="HTML", reply_markup=keyboard)
 
-@dp.callback_query(F.data.startswith("2_weeks") | F.data.startswith("1_month") | F.data.startswith("3_months"))
+@dp.callback_query(F.data.in_(SUBSCRIPTION_PLANS.keys()))
 async def handle_tariff_selection(callback):
-    chat_id = callback.message.chat.id
+    if not cryptobot_client:
+        await callback.message.answer("❌ Платежная система временно недоступна.")
+        await callback.answer()
+        return
+
     plan_key = callback.data
     plan = SUBSCRIPTION_PLANS[plan_key]
+    chat_id = callback.from_user.id
 
-    # Создаём запись о подписке
-    expiry_date = datetime.now() + timedelta(days=plan["days"])
-    subscribers[chat_id] = {
-        "expiry_date": expiry_date,
-        "status": "active"
-    }
-    save_data()
+    try:
+        # Создаём invoice в USDT
+        invoice = cryptobot_client.create_invoice(
+            asset=Asset.USDT,           # Можно TON, BTC и т.д.
+            amount=plan["price"].replace("$", ""),  # "5", "10", "25"
+            description=f"Подписка Fluffy Signals — {plan['name']}",
+            payload=f"{chat_id}:{plan_key}",   # Важно! Чтобы знать кто и что оплатил
+            # expired_in=3600,                 # можно добавить
+        )
 
-    await callback.message.answer(
-        "Вижу твой платеж, знал что ты свой))) "
-        "жди сигнала, не забудь включить уведомления, для отмены подписки /stop"
-    )
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(
+                text="💳 Оплатить USDT",
+                url=invoice.bot_invoice_url
+            )
+        ]])
+
+        await callback.message.edit_text(
+            f"💎 Оплата подписки <b>{plan['name']}</b> — {plan['price']}\n\n"
+            f"Перейди по ссылке ниже и оплати:",
+            reply_markup=keyboard,
+            parse_mode="HTML"
+        )
+
+    except Exception as e:
+        logger.error(f"CryptoBot invoice error: {e}")
+        await callback.message.answer("❌ Ошибка создания счёта. Попробуй позже.")
+
     await callback.answer()
-
 
 @dp.message(Command("stop"))
 async def stop(message: Message):
