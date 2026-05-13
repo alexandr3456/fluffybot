@@ -8,7 +8,7 @@ import pandas as pd
 import pandas_ta_classic as ta
 import ccxt
 import aiohttp
-
+import cryptobot-python
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import Command
 from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
